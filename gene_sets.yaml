@@ -1,0 +1,80 @@
+# =============================================================================
+#  gene_sets.yaml  —  the biological core of mrs-detectability-filter
+# =============================================================================
+#  YOU author everything below. This file is your unique contribution and the
+#  reason the project is defensible. Do NOT let an LLM fill the entries — the
+#  whole credibility play depends on these being correct human domain knowledge.
+#
+#  Two tiers, and the tiering IS the science:
+#    Tier A = flux-DETERMINING nodes. The only genes a hyperpolarized 13C
+#             tracer can actually report on. kPL is set by LDHA/LDHB + MCT1,
+#             NOT by all of glycolysis. This is what makes the filter real.
+#    Tier B = pathway CONTEXT. Gives direction/coherence of a metabolic shift,
+#             but is NOT sufficient for MRS detectability on its own.
+#
+#  Rules you already know but the pipeline enforces:
+#    - Intersect every set with the 10,282 tested genes in .var and report
+#      coverage per set. A score over 4/15 genes is not a score.
+#    - Mask the perturbed gene's own column before scoring (no tautologies).
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# TIER A — flux-determining nodes, grouped by the tracer that can see them.
+# `sign` = expected sign of the node's effect on the named rate constant
+#          (+1 = higher node expression -> higher rate constant).
+# ---------------------------------------------------------------------------
+tier_a:
+  pyr_to_lac:              # tracer: [1-13C]pyruvate ; observe Lac C1 ~183.2 ppm
+    rate_constant: kPL
+    tracer: "[1-13C]pyruvate -> lactate"
+    nodes:
+      # EXAMPLE ROW (verify and keep/replace):
+      - {gene: LDHA,   sign: +1}
+      # TODO(you): LDHB, SLC16A1/MCT1 (delivery, gate on transport not capacity),
+      #            SLC16A3 ... add with signs.
+
+  pyr_to_ala:              # tracer: same acquisition ; Ala C1 ~176.5 ppm
+    rate_constant: kPA
+    tracer: "[1-13C]pyruvate -> alanine"
+    nodes: []              # TODO(you): GPT2, GPT
+
+  pyr_to_bicarb:           # tracer: same acquisition ; bicarb ~161 ppm
+    rate_constant: kPB
+    tracer: "[1-13C]pyruvate -> bicarbonate (PDH flux)"
+    nodes: []              # TODO(you): PDHA1/PDHB/DLAT/DLD/PDP1 (+), PDK1-4 (-)
+    # NOTE: consider [2-13C]pyruvate -> Glu C5 as a higher-SNR alternative to bicarb.
+
+  gln_to_glu:              # tracer: [5-13C]glutamine ; observe Glu
+    rate_constant: kGG
+    tracer: "[5-13C]glutamine -> glutamate"
+    nodes: []              # TODO(you): GLS, GLS2, SLC1A5 (delivery)
+
+# ---------------------------------------------------------------------------
+# TIER B — pathway context sets (~20-40 genes each; pull from
+# MSigDB Hallmark / Reactome / KEGG, then curate).
+# ---------------------------------------------------------------------------
+tier_b:
+  glycolysis:        []    # TODO(you)
+  pdh_tca_entry:     []    # TODO(you)
+  glutaminolysis:    []    # TODO(you)
+  one_carbon:              # keep, but annotate honestly:
+    genes: []              # TODO(you): SHMT2, MTHFD2, PHGDH ...
+    hp_probe: none
+    note: >
+      No hyperpolarized 13C readout for serine/one-carbon flux. Deuterium
+      metabolic imaging (DMI) is the honest alternative. Stating this plainly
+      buys more credibility than inventing a tracer.
+
+# ---------------------------------------------------------------------------
+# IMMUNE PHENOTYPE sets — direction of "therapeutically favorable" matters.
+# ---------------------------------------------------------------------------
+phenotype:
+  effector:      [IFNG, IL2, TNF, CSF2]          # favorable = up
+  exhaustion:    [PDCD1, HAVCR2, LAG3, TOX, TIGIT, ENTPD1]  # favorable = down
+  polarization:  [TBX21, GATA3, RORC, FOXP3]     # context-dependent
+
+# ---------------------------------------------------------------------------
+# PROLIFERATION confounder set — used to regress out the "moves everything"
+# artifact so your top hits aren't ribosomes/spliceosome/proteasome.
+# ---------------------------------------------------------------------------
+proliferation:   [MKI67, MCM2, MCM3, MCM4, MCM5, MCM6, MCM7, CCNB1]

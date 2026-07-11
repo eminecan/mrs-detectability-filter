@@ -1,0 +1,137 @@
+# =============================================================================
+#  gene_sets.yaml  —  the biological core of mrs-detectability-filter
+# =============================================================================
+#  TIER A is researcher-authored (enzymology / rate-control judgment).
+#  TIER B is retrieved by Claude Science from curated databases, then approved
+#  by the researcher. Do not hand-type Tier B gene lists.
+#
+#  `sign` = expected sign of a node's effect on the named rate constant
+#           (+1 = higher node expression -> higher rate constant;
+#            -1 = higher node expression -> LOWER rate constant, i.e. an
+#            inhibitor, reverse-favoring enzyme, or opposing transporter).
+#  sign is applied in the forward model as: effective = sign * log2fc
+#  so a knockdown (negative log2fc) of a -1 node RAISES the rate constant.
+#
+#  Enforced rules (see project context):
+#    - Intersect every set with the ~10,282 tested genes in .var; report
+#      coverage per set before scoring.
+#    - Mask the perturbed gene's own column when scoring (no tautologies).
+#    - Symbols must match the dataset's .var gene_name (HGNC). Aliases silently
+#      fail to match -> reconcile via HGNC/Ensembl and report unmatched genes.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# TIER A — flux-determining nodes, grouped by the tracer that can see them.
+# ---------------------------------------------------------------------------
+tier_a:
+
+  pyr_to_lac:              # tracer: [1-13C]pyruvate ; observe Lac C1 ~183.2 ppm
+    rate_constant: kPL
+    tracer: "[1-13C]pyruvate -> lactate"
+    nodes:
+      - {gene: LDHA,    sign: +1}   # forward driver (M-subunit); dominant in activated T cells
+      - {gene: LDHB,    sign: -1}   # reverse-favoring (H-subunit); see caveat
+      - {gene: SLC16A1, sign: +1}   # MCT1 — pyruvate/lactate transporter (delivery; gate on transport)
+      - {gene: SLC16A3, sign: +1}   # MCT4 — weaker, efflux transporter
+    caveat: >
+      LDHB sign is context-dependent. kPL is a label-EXCHANGE constant, not net
+      synthesis. Net-flux/pool-size reading -> LDHB opposes lactate labeling (-1);
+      exchange-capacity reading is murkier. -1 is defensible IF stated. Cleanest
+      alternative is to drop LDHB entirely (LDHA dominates forward exchange).
+
+  pyr_to_ala:             # tracer: [1-13C]pyruvate ; observe Ala C1 ~176.5 ppm
+    rate_constant: kPA
+    tracer: "[1-13C]pyruvate -> alanine"
+    nodes:
+      - {gene: GPT,   sign: +1}     # cytosolic alanine aminotransferase (ALT1) — forward driver
+      - {gene: GPT2,  sign: +1}     # mitochondrial isoform (ALT2)
+    detectability_caveat: >
+      In early T-cell activation, <2% of cellular alanine is glucose-derived
+      (U-13C-glucose labeling; Ron-Harel et al. Cell Metab 2019), i.e. low net
+      de novo synthesis. HP kPA measures fast label EXCHANGE, not net synthesis,
+      so the arm is NOT excluded — but treat kPA as low-flux / pool-limited and
+      flag alanine hits as detectability-marginal pending exchange-specific data.
+
+  pyr_to_bicarb:          # tracer: [1-13C]pyruvate ; observe bicarb ~161 ppm
+    rate_constant: kPB
+    tracer: "[1-13C]pyruvate -> bicarbonate (PDH flux)"
+    nodes:
+      - {gene: PDHA1, sign: +1}     # catalytic core
+      - {gene: PDHB,  sign: +1}
+      - {gene: DLAT,  sign: +1}
+      - {gene: DLD,   sign: +1}
+      - {gene: PDP1,  sign: +1}     # phosphatase — activates PDH
+      - {gene: PDK1,  sign: -1}     # kinases — phosphorylate & inhibit PDH
+      - {gene: PDK2,  sign: -1}
+      - {gene: PDK3,  sign: -1}
+      - {gene: PDK4,  sign: -1}
+    detectability_caveat: >
+      Bicarbonate is low-SNR, and PDK regulation is post-translational
+      (phosphorylation) — a transcript screen sees it only indirectly, so use a
+      LOWER transcript->activity coupling for this arm. Consider [2-13C]pyruvate
+      -> Glu C5 as a higher-SNR alternative readout of PDH flux.
+
+  gln_to_glu:             # tracer: [5-13C]glutamine ; observe Glu
+    rate_constant: kGG
+    tracer: "[5-13C]glutamine -> glutamate"
+    nodes:
+      - {gene: SLC1A5, sign: +1}    # ASCT2 — glutamine transporter (delivery)
+      - {gene: GLS,    sign: +1}    # glutaminase (kidney-type)
+      - {gene: GLS2,   sign: +1}    # glutaminase (liver-type)
+      - {gene: GLUL,   sign: -1}    # glutamine synthetase — runs the reverse (Glu -> Gln)
+
+# ---------------------------------------------------------------------------
+# TIER B — pathway CONTEXT sets. Retrieved by Claude Science from MSigDB
+# Hallmark / Reactome / KEGG, intersected with .var, coverage reported, then
+# researcher-approved. Uniform dict schema so the loader reads every set the
+# same way. `hp_probe` links each set to the tracer arm it contextualizes
+# (or `none` for context-only pathways with no HP readout).
+# ---------------------------------------------------------------------------
+tier_b:
+
+  glycolysis:
+    genes: []             # Science fills (e.g. HALLMARK_GLYCOLYSIS / KEGG glycolysis)
+    source: ""            # Science records exact set name + ID
+    hp_probe: pyruvate    # tracer-adjacent (kPL)
+
+  pdh_tca_entry:
+    genes: []             # Science fills (Reactome pyruvate metabolism + TCA entry)
+    source: ""
+    hp_probe: pyruvate    # kPB arm
+
+  glutaminolysis:
+    genes: []             # Science fills (Reactome glutamate/glutamine metabolism)
+    source: ""
+    hp_probe: glutamine   # kGG arm
+
+  one_carbon:
+    genes: []             # e.g. SHMT2, MTHFD2, PHGDH, PSAT1, PSPH ...
+    source: ""
+    hp_probe: none
+    note: >
+      No hyperpolarized 13C readout for serine/one-carbon flux. Deuterium
+      metabolic imaging (DMI) is the honest alternative. Context set only.
+
+  cysteine_glutathione:
+    genes: []             # e.g. SLC7A11, SLC3A2, GCLC, GCLM, GSS, CTH, CBS
+    source: ""
+    hp_probe: none
+    note: >
+      Cysteine/GSH flux has no practical hyperpolarized readout. Redox /
+      ferroptosis context that shapes T-cell phenotype, NOT an MRS-detectable
+      node. Verify hp_probe:none against current tracer literature.
+
+# ---------------------------------------------------------------------------
+# IMMUNE PHENOTYPE sets — hand-curated marker lists (NOT database pulls).
+# Direction of "therapeutically favorable" matters and is annotated.
+# ---------------------------------------------------------------------------
+phenotype:
+  effector:      [IFNG, IL2, TNF, CSF2]                      # favorable = up
+  exhaustion:    [PDCD1, HAVCR2, LAG3, TOX, TIGIT, ENTPD1]   # favorable = down
+  polarization:  [TBX21, GATA3, RORC, FOXP3]                 # context-dependent
+
+# ---------------------------------------------------------------------------
+# PROLIFERATION confounder set — regressed out so top hits aren't
+# ribosome / spliceosome / proteasome artifacts. Hand-curated.
+# ---------------------------------------------------------------------------
+proliferation: [MKI67, MCM2, MCM3, MCM4, MCM5, MCM6, MCM7, CCNB1]
